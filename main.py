@@ -9,18 +9,16 @@ from pydantic import BaseModel
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-import pytesseract
-from PIL import Image
-
-# On Linux (Render) tesseract is at /usr/bin/tesseract; set explicitly to avoid PATH issues
-if os.path.exists("/usr/bin/tesseract"):
-    pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
+import easyocr
 
 import fitz  # PyMuPDF
 import docx
 import openpyxl
 
 app = FastAPI(title="Copilot Studio - File to Text API")
+
+# Khởi tạo reader một lần khi server start (tránh load model lại mỗi request)
+ocr_reader = easyocr.Reader(["vi", "en"], gpu=False)
 
 
 class FileInput(BaseModel):
@@ -46,11 +44,10 @@ def extract_from_pdf(file_bytes: bytes) -> str:
             if page_text.strip():
                 text_parts.append(page_text)
             else:
-                # No extractable text -> OCR the page image
                 pix = page.get_pixmap(dpi=200)
-                img = Image.open(io.BytesIO(pix.tobytes("png")))
-                ocr_text = pytesseract.image_to_string(img, lang="vie+eng")
-                text_parts.append(ocr_text)
+                img_bytes = pix.tobytes("png")
+                results = ocr_reader.readtext(img_bytes, detail=0)
+                text_parts.append("\n".join(results))
     return "\n".join(text_parts).strip()
 
 
@@ -91,10 +88,8 @@ def extract_from_xlsx(file_bytes: bytes) -> str:
 
 
 def extract_from_image(file_bytes: bytes) -> str:
-    img = Image.open(io.BytesIO(file_bytes))
-    if img.mode != "RGB":
-        img = img.convert("RGB")
-    return pytesseract.image_to_string(img, lang="vie+eng").strip()
+    results = ocr_reader.readtext(file_bytes, detail=0)
+    return "\n".join(results).strip()
 
 
 EXTENSION_MAP = {
