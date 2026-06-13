@@ -1,10 +1,13 @@
 import base64
 import io
+import logging
 import os
-import tempfile
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 import pytesseract
 from PIL import Image
@@ -131,6 +134,7 @@ def extract_text(payload: FileInput):
     try:
         text = extractor(file_bytes)
     except Exception as e:
+        logger.exception("Extraction failed for file=%s ext=%s", payload.fileName, ext)
         raise HTTPException(status_code=500, detail=f"Failed to extract content: {str(e)}")
 
     return FileOutput(fileName=payload.fileName, fileType=file_type, text=text)
