@@ -9,6 +9,10 @@ from pydantic import BaseModel
 import pytesseract
 from PIL import Image
 
+# On Linux (Render) tesseract is at /usr/bin/tesseract; set explicitly to avoid PATH issues
+if os.path.exists("/usr/bin/tesseract"):
+    pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
+
 import fitz  # PyMuPDF
 import docx
 import openpyxl
