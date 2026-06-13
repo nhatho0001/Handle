@@ -47,8 +47,9 @@ def ocr_via_api(image_bytes: bytes, ext: str = "png") -> str:
     )
     response.raise_for_status()
     result = response.json()
+    logger.info("OCR.space response: %s", result)
     if result.get("IsErroredOnProcessing"):
-        raise Exception(result.get("ErrorMessage", ["OCR API error"])[0])
+        raise Exception(str(result))
     return "\n".join(r["ParsedText"] for r in result.get("ParsedResults", [])).strip()
 
 
