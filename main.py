@@ -3,22 +3,20 @@ import io
 import logging
 import os
 
+import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-import easyocr
-
+from PIL import Image
 import fitz  # PyMuPDF
 import docx
 import openpyxl
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 app = FastAPI(title="Copilot Studio - File to Text API")
 
-# Khởi tạo reader một lần khi server start (tránh load model lại mỗi request)
-ocr_reader = easyocr.Reader(["vi", "en"], gpu=False)
+OCR_API_KEY = os.getenv("OCR_SPACE_API_KEY", "helloworld")
 
 
 class FileInput(BaseModel):
@@ -36,6 +34,25 @@ def get_extension(filename: str) -> str:
     return os.path.splitext(filename)[1].lower().lstrip(".")
 
 
+def ocr_via_api(image_bytes: bytes, ext: str = "png") -> str:
+    b64 = base64.b64encode(image_bytes).decode()
+    response = httpx.post(
+        "https://api.ocr.space/parse/image",
+        data={
+            "apikey": OCR_API_KEY,
+            "base64Image": f"data:image/{ext};base64,{b64}",
+            "language": "vie",
+            "isOverlayRequired": False,
+        },
+        timeout=30,
+    )
+    response.raise_for_status()
+    result = response.json()
+    if result.get("IsErroredOnProcessing"):
+        raise Exception(result.get("ErrorMessage", ["OCR API error"])[0])
+    return "\n".join(r["ParsedText"] for r in result.get("ParsedResults", [])).strip()
+
+
 def extract_from_pdf(file_bytes: bytes) -> str:
     text_parts = []
     with fitz.open(stream=file_bytes, filetype="pdf") as doc:
@@ -45,9 +62,8 @@ def extract_from_pdf(file_bytes: bytes) -> str:
                 text_parts.append(page_text)
             else:
                 pix = page.get_pixmap(dpi=200)
-                img_bytes = pix.tobytes("png")
-                results = ocr_reader.readtext(img_bytes, detail=0)
-                text_parts.append("\n".join(results))
+                ocr_text = ocr_via_api(pix.tobytes("png"), ext="png")
+                text_parts.append(ocr_text)
     return "\n".join(text_parts).strip()
 
 
@@ -56,7 +72,6 @@ def extract_from_docx(file_bytes: bytes) -> str:
     document = docx.Document(f)
 
     parts = []
-
     for para in document.paragraphs:
         if para.text.strip():
             parts.append(para.text)
@@ -87,23 +102,27 @@ def extract_from_xlsx(file_bytes: bytes) -> str:
     return "\n".join(parts).strip()
 
 
-def extract_from_image(file_bytes: bytes) -> str:
-    results = ocr_reader.readtext(file_bytes, detail=0)
-    return "\n".join(results).strip()
+def extract_from_image(file_bytes: bytes, ext: str = "png") -> str:
+    img = Image.open(io.BytesIO(file_bytes))
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return ocr_via_api(buf.getvalue(), ext="png")
 
 
 EXTENSION_MAP = {
-    "pdf": ("pdf", extract_from_pdf),
-    "doc": ("word", extract_from_docx),
-    "docx": ("word", extract_from_docx),
-    "xls": ("excel", extract_from_xlsx),
-    "xlsx": ("excel", extract_from_xlsx),
-    "png": ("image", extract_from_image),
-    "jpg": ("image", extract_from_image),
-    "jpeg": ("image", extract_from_image),
-    "bmp": ("image", extract_from_image),
-    "tiff": ("image", extract_from_image),
-    "gif": ("image", extract_from_image),
+    "pdf":  ("pdf",   lambda b: extract_from_pdf(b)),
+    "doc":  ("word",  lambda b: extract_from_docx(b)),
+    "docx": ("word",  lambda b: extract_from_docx(b)),
+    "xls":  ("excel", lambda b: extract_from_xlsx(b)),
+    "xlsx": ("excel", lambda b: extract_from_xlsx(b)),
+    "png":  ("image", lambda b: extract_from_image(b, "png")),
+    "jpg":  ("image", lambda b: extract_from_image(b, "jpg")),
+    "jpeg": ("image", lambda b: extract_from_image(b, "jpeg")),
+    "bmp":  ("image", lambda b: extract_from_image(b, "bmp")),
+    "tiff": ("image", lambda b: extract_from_image(b, "tiff")),
+    "gif":  ("image", lambda b: extract_from_image(b, "gif")),
 }
 
 

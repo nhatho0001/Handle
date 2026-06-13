@@ -1,0 +1,10 @@
+.git
+.gitignore
+.gcloudignore
+__pycache__
+*.pyc
+*.pyo
+.env
+render.yaml
+build.sh
+README.md
