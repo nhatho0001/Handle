@@ -41,7 +41,7 @@ def ocr_via_api(image_bytes: bytes, ext: str = "png") -> str:
         data={
             "apikey": OCR_API_KEY,
             "base64Image": f"data:image/{ext};base64,{b64}",
-            "language": "vie",
+            "language": "eng",
             "isOverlayRequired": False,
         },
         timeout=30,
